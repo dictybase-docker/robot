@@ -24,6 +24,10 @@ public class TemplateCommand implements Command {
   /** Namespace for error messages. */
   private static final String NS = "template#";
 
+  /** Error message when user provides --merge-before and --merge-after as true. */
+  private static final String mergeError =
+      NS + "MERGE ERROR merge-before and merge-after cannot be combined";
+
   /** Error message when a template is not provided. */
   private static final String missingTemplateError =
       NS + "MISSING TEMPLATE ERROR at least one template is required";
@@ -47,6 +51,7 @@ public class TemplateCommand implements Command {
         "c", "collapse-import-closure", true, "if true, collapse the import closure when merging");
     o.addOption(
         "A", "include-annotations", true, "if true, include ontology annotations from merge input");
+
     options = o;
   }
 
@@ -95,7 +100,7 @@ public class TemplateCommand implements Command {
     try {
       execute(null, args);
     } catch (Exception e) {
-      CommandLineHelper.handleException(getUsage(), getOptions(), e);
+      CommandLineHelper.handleException(e);
     }
   }
 
@@ -145,7 +150,8 @@ public class TemplateCommand implements Command {
     // Do not MIREOT the terms defined in the template,
     // just their dependencies!
     List<OWLOntology> ontologies;
-    if (line.hasOption("ancestors") && inputOntology != null) {
+    boolean hasAncestors = CommandLineHelper.getBooleanValue(line, "ancestors", false, true);
+    if (hasAncestors && inputOntology != null) {
       Set<IRI> iris = OntologyHelper.getIRIs(outputOntology);
       iris.removeAll(TemplateHelper.getIRIs(tables, ioHelper));
       OWLOntology ancestors =
@@ -159,10 +165,15 @@ public class TemplateCommand implements Command {
     // Either merge-then-save, save-then-merge, or don't merge
     ontologies = new ArrayList<OWLOntology>();
     ontologies.add(outputOntology);
-    if (line.hasOption("merge-before")) {
+    boolean mergeBefore = CommandLineHelper.getBooleanValue(line, "merge-before", false, true);
+    boolean mergeAfter = CommandLineHelper.getBooleanValue(line, "merge-after", false, true);
+    if (mergeBefore && mergeAfter) {
+      throw new IllegalArgumentException(mergeError);
+    }
+    if (mergeBefore) {
       MergeOperation.mergeInto(ontologies, inputOntology, includeAnnotations, collapseImports);
       CommandLineHelper.maybeSaveOutput(line, inputOntology);
-    } else if (line.hasOption("merge-after")) {
+    } else if (mergeAfter) {
       CommandLineHelper.maybeSaveOutput(line, outputOntology);
       MergeOperation.mergeInto(ontologies, inputOntology, includeAnnotations, collapseImports);
     } else {

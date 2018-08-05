@@ -1,14 +1,7 @@
 package org.obolibrary.robot;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import org.semanticweb.owlapi.model.OWLAnnotation;
-import org.semanticweb.owlapi.model.OWLImportsDeclaration;
-import org.semanticweb.owlapi.model.OWLOntology;
-import org.semanticweb.owlapi.model.RemoveImport;
+import java.util.*;
+import org.semanticweb.owlapi.model.*;
 import org.semanticweb.owlapi.model.parameters.Imports;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +51,7 @@ public class MergeOperation {
    * @param ontologies the list of ontologies to merge
    * @param includeAnnotations if true, ontology annotations should be merged; annotations on
    *     imports are not merged
-   * @param collapseImportsClosure if true, imports closure from all ontologies included
+   * @param collapseImportClosure if true, imports closure from all ontologies included
    * @return the first ontology
    */
   public static OWLOntology merge(
@@ -106,7 +99,7 @@ public class MergeOperation {
    * list. It is recommended to use mergeInto with both includeAnnotations and
    * collapseImportsClosure options.
    *
-   * @param ontology the source ontology to merge
+   * @param ontologies the ontologies to merge
    * @param targetOntology the ontology to merge axioms into
    * @param includeAnnotations if true, ontology annotations should be merged; annotations on
    *     imports are not merged
@@ -115,6 +108,23 @@ public class MergeOperation {
       List<OWLOntology> ontologies, OWLOntology targetOntology, boolean includeAnnotations) {
     // By default, do not collapse the imports closure
     mergeInto(ontologies, targetOntology, includeAnnotations, false);
+  }
+
+  /**
+   * Given a source ontology and a target ontology, add all the axioms from the source ontology and
+   * its import closure into the target ontology. The target ontology is not itself merged, so any
+   * of its imports remain distinct.
+   *
+   * @param ontology the source ontology to merge
+   * @param targetOntology the ontology to merge axioms into
+   * @param includeAnnotations true if ontology annotations should be merged; annotations on imports
+   *     are not merged
+   */
+  public static void mergeInto(
+      OWLOntology ontology, OWLOntology targetOntology, boolean includeAnnotations) {
+    List<OWLOntology> ontologies = new ArrayList<OWLOntology>();
+    ontologies.add(ontology);
+    mergeInto(ontologies, targetOntology, includeAnnotations);
   }
 
   /**
@@ -175,9 +185,24 @@ public class MergeOperation {
             .addAxioms(targetOntology, ontology.getAxioms(Imports.INCLUDED));
       } else {
         // Merge the ontologies with imports excluded
+        Set<OWLOntology> imports = targetOntology.getImports();
+        try {
+          OntologyHelper.removeImports(targetOntology);
+        } catch (Exception e) {
+          // Continue without removing imports
+          continue;
+        }
         targetOntology
             .getOWLOntologyManager()
             .addAxioms(targetOntology, ontology.getAxioms(Imports.EXCLUDED));
+        OWLOntologyManager manager = targetOntology.getOWLOntologyManager();
+        OWLDataFactory dataFactory = manager.getOWLDataFactory();
+        // Re-add the imports
+        for (OWLOntology imp : imports) {
+          OWLImportsDeclaration dec =
+              dataFactory.getOWLImportsDeclaration(imp.getOntologyID().getOntologyIRI().orNull());
+          manager.applyChange(new AddImport(targetOntology, dec));
+        }
       }
       if (includeAnnotations) {
         for (OWLAnnotation annotation : ontology.getAnnotations()) {

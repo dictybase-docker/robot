@@ -1,22 +1,12 @@
 package org.obolibrary.robot;
 
-import com.google.common.io.Files;
-import com.hp.hpl.jena.query.ResultSet;
-import com.hp.hpl.jena.query.ResultSetFactory;
-import com.hp.hpl.jena.query.ResultSetRewindable;
-import com.hp.hpl.jena.sparql.core.DatasetGraph;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.charset.Charset;
-import java.util.HashMap;
-import java.util.Map;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
-import org.obolibrary.robot.exceptions.CannotReadQuery;
+import org.apache.jena.query.Dataset;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,6 +25,10 @@ public class VerifyCommand implements Command {
   /** Error message when no query is provided. */
   private static final String missingQueryError =
       NS + "MISSING QUERY ERROR at least one query is required";
+
+  /** Error message when no query is provided. */
+  private static final String verificationFailed =
+      NS + "VERIFICATION FAILED there were violations of at least one rule";
 
   /** Store the command-line options for the command. */
   private Options options;
@@ -68,8 +62,7 @@ public class VerifyCommand implements Command {
    * @return description
    */
   public String getDescription() {
-    return "Runs a sparql query on an ontology. "
-        + "Any results of the query are violations, counted, and reported";
+    return "verify an ontology does not violate rules (as queries)";
   }
 
   /**
@@ -99,7 +92,7 @@ public class VerifyCommand implements Command {
     try {
       execute(null, args);
     } catch (Exception e) {
-      CommandLineHelper.handleException(getUsage(), getOptions(), e);
+      CommandLineHelper.handleException(e);
     }
   }
 
@@ -118,48 +111,32 @@ public class VerifyCommand implements Command {
 
     IOHelper ioHelper = CommandLineHelper.getIOHelper(line);
     state = CommandLineHelper.updateInputOntology(ioHelper, state, line);
-    DatasetGraph graph = QueryOperation.loadOntology(state.getOntology());
+    // Load into dataset without imports
+    Dataset dataset = QueryOperation.loadOntologyAsDataset(state.getOntology(), false);
 
     File outputDir = new File(CommandLineHelper.getDefaultValue(line, "output-dir", "."));
 
-    Map<File, Tuple<ResultSetRewindable, OutputStream>> resultMap = new HashMap<>();
     String[] queryFilePaths = line.getOptionValues("queries");
     if (queryFilePaths.length == 0) {
-      throw new IllegalArgumentException(missingQueryError);
+      throw new Exception(missingQueryError);
     }
+    boolean passing = true;
     for (String filePath : queryFilePaths) {
-      File query = new File(filePath);
-      ResultSet results = QueryOperation.execQuery(graph, fileContents(query));
-      ResultSetRewindable resultsCopy = ResultSetFactory.copyResults(results);
+      File queryFile = new File(filePath);
+      String queryString = FileUtils.readFileToString(queryFile);
       String csvPath = FilenameUtils.getBaseName(filePath).concat(".csv");
-      File resultCsv = outputDir.toPath().resolve(csvPath).toFile();
-      if (resultsCopy.size() > 0) {
-        resultMap.put(query, new Tuple<>(resultsCopy, new FileOutputStream(resultCsv)));
-      } else {
-        System.out.println("Rule " + resultCsv.getCanonicalPath() + ": 0 violations");
+      boolean result =
+          QueryOperation.runVerify(
+              dataset, filePath, queryString, outputDir.toPath().resolve(csvPath), null);
+      if (result) {
+        passing = false;
       }
     }
 
-    boolean violationsExist = QueryOperation.execVerify(resultMap);
-    if (violationsExist) {
-      System.exit(1);
+    if (!passing) {
+      throw new Exception(verificationFailed);
     }
 
     return state;
-  }
-
-  /**
-   * Utility function to get file contents.
-   *
-   * @param file the file to read
-   */
-  private static String fileContents(File file) {
-    try {
-      return Files.toString(file, Charset.defaultCharset());
-    } catch (IOException e) {
-      String message = "Cannot read from " + file + ": " + e.getMessage();
-      // TODO: Is this necessary?
-      throw new CannotReadQuery(message, e);
-    }
   }
 }

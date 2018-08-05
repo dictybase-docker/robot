@@ -6,8 +6,7 @@ import com.github.jsonldjava.core.JsonLdError;
 import com.github.jsonldjava.core.JsonLdOptions;
 import com.github.jsonldjava.core.JsonLdProcessor;
 import com.github.jsonldjava.utils.JsonUtils;
-import com.hp.hpl.jena.rdf.model.Model;
-import com.hp.hpl.jena.rdf.model.ModelFactory;
+import com.google.common.collect.Sets;
 import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -17,6 +16,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
+import java.io.Reader;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,6 +26,8 @@ import java.util.Set;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.jena.rdf.model.Model;
+import org.apache.jena.rdf.model.ModelFactory;
 import org.geneontology.obographs.io.OboGraphJsonDocumentFormat;
 import org.geneontology.obographs.io.OgJsonGenerator;
 import org.geneontology.obographs.model.GraphDocument;
@@ -313,7 +315,10 @@ public class IOHelper {
 
       OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
       if (catalogFile != null && catalogFile.isFile()) {
-        manager.addIRIMapper(new CatalogXmlIRIMapper(catalogFile));
+        manager.setIRIMappers(Sets.newHashSet(new CatalogXmlIRIMapper(catalogFile)));
+      } else {
+        logger.warn(
+            "Catalog {} does not exist. Loading ontology without catalog.", catalogFile.getPath());
       }
       return manager.loadOntologyFromOntologyDocument(ontologyFile);
     } catch (JsonLdError e) {
@@ -342,10 +347,10 @@ public class IOHelper {
   }
 
   /**
-   * Load an ontology from the web using an IRI.
+   * Given an ontology IRI, load the ontology from the IRI.
    *
    * @param ontologyIRI the ontology IRI to load
-   * @return a new ontology objects, with a new OWLManager
+   * @return a new ontology object, with a new OWLManager
    * @throws IOException on any problem
    */
   public OWLOntology loadOntology(IRI ontologyIRI) throws IOException {
@@ -355,6 +360,31 @@ public class IOHelper {
       ontology = manager.loadOntologyFromOntologyDocument(ontologyIRI);
     } catch (OWLOntologyCreationException e) {
       throw new IOException(String.format(invalidOntologyIRIError, ontologyIRI.toString()), e);
+    }
+    return ontology;
+  }
+
+  /**
+   * Given an IRI and a path to a catalog file, load the ontology from the IRI with the catalog.
+   *
+   * @param ontologyIRI the ontology IRI to load
+   * @param catalogPath the catalog file to use
+   * @return a new ontology object, with a new OWLManager
+   * @throws IOException on any problem
+   */
+  public OWLOntology loadOntology(IRI ontologyIRI, String catalogPath) throws IOException {
+    OWLOntology ontology = null;
+    File catalogFile = new File(catalogPath);
+    if (!catalogFile.isFile() || catalogFile == null) {
+      // TODO: should this be an exception?
+      logger.warn("Catalog {} does not exist. Loading ontology without catalog.", catalogPath);
+    }
+    try {
+      OWLOntologyManager manager = OWLManager.createOWLOntologyManager();
+      manager.setIRIMappers(Sets.newHashSet(new CatalogXmlIRIMapper(catalogFile)));
+      ontology = manager.loadOntologyFromOntologyDocument(ontologyIRI);
+    } catch (OWLOntologyCreationException e) {
+      throw new IOException(e);
     }
     return ontology;
   }
@@ -445,7 +475,7 @@ public class IOHelper {
    *
    * @param ontology the ontology to save
    * @param format the ontology format to use
-   * @param ontologyIRI the IRI to save the ontology to
+   * @param ontologyFile the file to save the ontology to
    * @return the saved ontology
    * @throws IOException on any problem
    */
@@ -468,6 +498,20 @@ public class IOHelper {
       final OWLOntology ontology, OWLDocumentFormat format, File ontologyFile, boolean checkOBO)
       throws IOException {
     return saveOntology(ontology, format, IRI.create(ontologyFile), checkOBO);
+  }
+
+  /**
+   * Save an ontology in the given format to an IRI.
+   *
+   * @param ontology the ontology to save
+   * @param format the ontology format to use
+   * @param ontologyIRI the IRI to save the ontology to
+   * @return the saved ontology
+   * @throws IOException on any problem
+   */
+  public OWLOntology saveOntology(
+      final OWLOntology ontology, OWLDocumentFormat format, IRI ontologyIRI) throws IOException {
+    return saveOntology(ontology, format, ontologyIRI, true);
   }
 
   /**
@@ -882,5 +926,82 @@ public class IOHelper {
     FileWriter writer = new FileWriter(file);
     writer.write(getContextString());
     writer.close();
+  }
+
+  /**
+   * Read comma-separated values from a path to a list of lists of strings.
+   *
+   * @param path file path to the CSV file
+   * @return a list of lists of strings
+   * @throws IOException on file or reading problems
+   */
+  public static List<List<String>> readCSV(String path) throws IOException {
+    return TemplateHelper.readCSV(path);
+  }
+
+  /**
+   * Read comma-separated values from a stream to a list of lists of strings.
+   *
+   * @param stream the stream to read from
+   * @return a list of lists of strings
+   * @throws IOException on file or reading problems
+   */
+  public static List<List<String>> readCSV(InputStream stream) throws IOException {
+    return TemplateHelper.readCSV(stream);
+  }
+
+  /**
+   * Read comma-separated values from a reader to a list of lists of strings.
+   *
+   * @param reader a reader to read data from
+   * @return a list of lists of strings
+   * @throws IOException on file or reading problems
+   */
+  public static List<List<String>> readCSV(Reader reader) throws IOException {
+    return TemplateHelper.readCSV(reader);
+  }
+
+  /**
+   * Read tab-separated values from a path to a list of lists of strings.
+   *
+   * @param path file path to the CSV file
+   * @return a list of lists of strings
+   * @throws IOException on file or reading problems
+   */
+  public static List<List<String>> readTSV(String path) throws IOException {
+    return TemplateHelper.readTSV(path);
+  }
+
+  /**
+   * Read tab-separated values from a stream to a list of lists of strings.
+   *
+   * @param stream the stream to read from
+   * @return a list of lists of strings
+   * @throws IOException on file or reading problems
+   */
+  public static List<List<String>> readTSV(InputStream stream) throws IOException {
+    return TemplateHelper.readTSV(stream);
+  }
+
+  /**
+   * Read tab-separated values from a reader to a list of lists of strings.
+   *
+   * @param reader a reader to read data from
+   * @return a list of lists of strings
+   * @throws IOException on file or reading problems
+   */
+  public static List<List<String>> readTSV(Reader reader) throws IOException {
+    return TemplateHelper.readTSV(reader);
+  }
+
+  /**
+   * Read a table from a path to a list of lists of strings.
+   *
+   * @param path file path to the CSV file
+   * @return a list of lists of strings
+   * @throws IOException on file or reading problems
+   */
+  public static List<List<String>> readTable(String path) throws IOException {
+    return TemplateHelper.readTable(path);
   }
 }

@@ -1,15 +1,15 @@
 package org.obolibrary.robot;
 
-import java.io.File;
-import java.io.FileFilter;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.StringTokenizer;
-import java.util.Vector;
+import java.io.*;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.net.URLDecoder;
+import java.util.*;
+import java.util.jar.JarFile;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.HelpFormatter;
@@ -17,11 +17,28 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PosixParser;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOExceptionWithCause;
 import org.apache.commons.io.filefilter.WildcardFileFilter;
 import org.geneontology.reasoner.ExpressionMaterializingReasonerFactory;
 import org.semanticweb.elk.owlapi.ElkReasonerFactory;
 import org.semanticweb.owlapi.model.IRI;
+import org.semanticweb.owlapi.model.OWLAnnotationAxiom;
+import org.semanticweb.owlapi.model.OWLAxiom;
+import org.semanticweb.owlapi.model.OWLClassAssertionAxiom;
+import org.semanticweb.owlapi.model.OWLDeclarationAxiom;
+import org.semanticweb.owlapi.model.OWLDisjointClassesAxiom;
+import org.semanticweb.owlapi.model.OWLDisjointDataPropertiesAxiom;
+import org.semanticweb.owlapi.model.OWLDisjointObjectPropertiesAxiom;
+import org.semanticweb.owlapi.model.OWLDisjointUnionAxiom;
+import org.semanticweb.owlapi.model.OWLEquivalentClassesAxiom;
+import org.semanticweb.owlapi.model.OWLEquivalentDataPropertiesAxiom;
+import org.semanticweb.owlapi.model.OWLEquivalentObjectPropertiesAxiom;
+import org.semanticweb.owlapi.model.OWLLogicalAxiom;
 import org.semanticweb.owlapi.model.OWLOntology;
+import org.semanticweb.owlapi.model.OWLSubAnnotationPropertyOfAxiom;
+import org.semanticweb.owlapi.model.OWLSubClassOfAxiom;
+import org.semanticweb.owlapi.model.OWLSubDataPropertyOfAxiom;
+import org.semanticweb.owlapi.model.OWLSubObjectPropertyOfAxiom;
 import org.semanticweb.owlapi.reasoner.OWLReasonerFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +51,9 @@ public class CommandLineHelper {
 
   /** Namespace for general input error messages. */
   private static final String NS = "errors#";
+
+  /** Error message when --axioms is not a valid AxiomType. Expects: input string. */
+  private static final String axiomTypeError = NS + "AXIOM TYPE ERROR %s is not a valid axiom type";
 
   /** Error message when a boolean value is not "true" or "false". Expects option name. */
   private static final String booleanValueError =
@@ -82,7 +102,7 @@ public class CommandLineHelper {
    * @throws Exception on parsing problems
    */
   public static List<String> parseArgList(String toProcess) throws Exception {
-    return new ArrayList<String>(Arrays.asList(parseArgs(toProcess)));
+    return new ArrayList<>(Arrays.asList(parseArgs(toProcess)));
   }
 
   /**
@@ -104,7 +124,7 @@ public class CommandLineHelper {
     final int inDoubleQuote = 2;
     int state = normal;
     StringTokenizer tok = new StringTokenizer(toProcess, "\"\' ", true);
-    Vector<String> v = new Vector<String>();
+    Vector<String> v = new Vector<>();
     StringBuffer current = new StringBuffer();
     boolean lastTokenHasBeenQuoted = false;
 
@@ -167,10 +187,10 @@ public class CommandLineHelper {
    * @return the option values as a list of strings, maybe empty
    */
   public static List<String> getOptionValues(CommandLine line, String name) {
-    List<String> valueList = new ArrayList<String>();
+    List<String> valueList = new ArrayList<>();
     String[] valueArray = line.getOptionValues(name);
     if (valueArray != null) {
-      valueList = new ArrayList<String>(Arrays.asList(valueArray));
+      valueList = new ArrayList<>(Arrays.asList(valueArray));
     }
     return valueList;
   }
@@ -215,10 +235,86 @@ public class CommandLineHelper {
       return true;
     }
     String command = getCommand(line);
-    if (command != null && command.equals(name)) {
-      return true;
+    return command != null && command.equals(name);
+  }
+
+  /**
+   * Given a command line, an argument name, the boolean default value, and boolean if the arg is
+   * optional, return the value of the command-line option 'name'.
+   *
+   * @param line the command line to use
+   * @param name the name of the option to find
+   * @param defaultValue the default value to use if the option is not provided
+   * @param optionalArg if true, the option without an arg will return true
+   * @return the option value as boolean, or the default if not found
+   */
+  public static boolean getBooleanValue(
+      CommandLine line, String name, boolean defaultValue, boolean optionalArg) {
+    if (line.hasOption(name)) {
+      if (CommandLineHelper.getOptionalValue(line, name) == null) {
+        return true;
+      } else {
+        return CommandLineHelper.getBooleanValue(line, name, defaultValue);
+      }
+    } else {
+      return false;
     }
-    return false;
+  }
+
+  /**
+   * Given a command line, return the value of --axioms as a set of classes that extend OWLAxiom.
+   *
+   * @param line the command line to use
+   * @return set of OWLAxiom types
+   */
+  public static Set<Class<? extends OWLAxiom>> getAxiomValues(CommandLine line) {
+    Set<Class<? extends OWLAxiom>> axiomTypes = new HashSet<>();
+    List<String> axiomTypeStrings = getOptionValues(line, "axioms");
+    if (axiomTypeStrings.isEmpty()) {
+      axiomTypeStrings.add("all");
+    }
+    // Split if it's one arg with spaces
+    List<String> axiomTypeFixedStrings = new ArrayList<>();
+    for (String axiom : axiomTypeStrings) {
+      if (axiom.contains(" ")) {
+        axiomTypeFixedStrings.addAll(Arrays.asList(axiom.split(" ")));
+      } else {
+        axiomTypeFixedStrings.add(axiom);
+      }
+    }
+    // Then get the actual types
+    for (String axiom : axiomTypeFixedStrings) {
+      if (axiom.equalsIgnoreCase("all")) {
+        axiomTypes.add(OWLAxiom.class);
+      } else if (axiom.equalsIgnoreCase("logical")) {
+        axiomTypes.add(OWLLogicalAxiom.class);
+      } else if (axiom.equalsIgnoreCase("annotation")) {
+        axiomTypes.add(OWLAnnotationAxiom.class);
+      } else if (axiom.equalsIgnoreCase("subclass")) {
+        axiomTypes.add(OWLSubClassOfAxiom.class);
+      } else if (axiom.equalsIgnoreCase("subproperty")) {
+        axiomTypes.add(OWLSubObjectPropertyOfAxiom.class);
+        axiomTypes.add(OWLSubDataPropertyOfAxiom.class);
+        axiomTypes.add(OWLSubAnnotationPropertyOfAxiom.class);
+      } else if (axiom.equalsIgnoreCase("equivalent")) {
+        axiomTypes.add(OWLEquivalentClassesAxiom.class);
+        axiomTypes.add(OWLEquivalentObjectPropertiesAxiom.class);
+        axiomTypes.add(OWLEquivalentDataPropertiesAxiom.class);
+      } else if (axiom.equalsIgnoreCase("disjoint")) {
+        axiomTypes.add(OWLDisjointClassesAxiom.class);
+        axiomTypes.add(OWLDisjointObjectPropertiesAxiom.class);
+        axiomTypes.add(OWLDisjointDataPropertiesAxiom.class);
+        axiomTypes.add(OWLDisjointUnionAxiom.class);
+      } else if (axiom.equalsIgnoreCase("type")) {
+        axiomTypes.add(OWLClassAssertionAxiom.class);
+        // TODO: Make a-box, t-box, r-box
+      } else if (axiom.equalsIgnoreCase("declaration")) {
+        axiomTypes.add(OWLDeclarationAxiom.class);
+      } else {
+        throw new IllegalArgumentException(String.format(axiomTypeError, axiom));
+      }
+    }
+    return axiomTypes;
   }
 
   /**
@@ -260,9 +356,9 @@ public class CommandLineHelper {
    */
   public static List<String> getOptionalValues(CommandLine line, String name) {
     if (line.hasOption(name)) {
-      return new ArrayList<String>(Arrays.asList(line.getOptionValues(name)));
+      return new ArrayList<>(Arrays.asList(line.getOptionValues(name)));
     } else {
-      return new ArrayList<String>();
+      return new ArrayList<>();
     }
   }
 
@@ -344,19 +440,29 @@ public class CommandLineHelper {
    */
   public static OWLOntology getInputOntology(IOHelper ioHelper, CommandLine line)
       throws IllegalArgumentException, IOException {
-    OWLOntology inputOntology = null;
+    OWLOntology inputOntology;
     // Check for multiple inputs
     List<String> inputOntologyPaths = getOptionalValues(line, "input");
     List<String> inputOntologyIRIs = getOptionalValues(line, "input-iri");
+    String catalogPath = getOptionalValue(line, "catalog");
+
     Integer check = inputOntologyPaths.size() + inputOntologyIRIs.size();
     if (check > 1) {
       throw new IllegalArgumentException(multipleInputsError);
     }
 
     if (!inputOntologyPaths.isEmpty()) {
-      inputOntology = ioHelper.loadOntology(inputOntologyPaths.get(0));
+      if (catalogPath != null) {
+        inputOntology = ioHelper.loadOntology(inputOntologyPaths.get(0), catalogPath);
+      } else {
+        inputOntology = ioHelper.loadOntology(inputOntologyPaths.get(0));
+      }
     } else if (!inputOntologyIRIs.isEmpty()) {
-      inputOntology = ioHelper.loadOntology(IRI.create(inputOntologyIRIs.get(0)));
+      if (catalogPath != null) {
+        inputOntology = ioHelper.loadOntology(IRI.create(inputOntologyIRIs.get(0)), catalogPath);
+      } else {
+        inputOntology = ioHelper.loadOntology(IRI.create(inputOntologyIRIs.get(0)));
+      }
     } else {
       // Both input options are empty
       throw new IllegalArgumentException(missingInputError);
@@ -380,39 +486,13 @@ public class CommandLineHelper {
   public static List<OWLOntology> getInputOntologies(
       IOHelper ioHelper, CommandLine line, boolean allowEmpty)
       throws IllegalArgumentException, IOException {
-    List<OWLOntology> inputOntologies = new ArrayList<OWLOntology>();
+    List<OWLOntology> inputOntologies = new ArrayList<>();
+    String catalogPath = getOptionalValue(line, "catalog");
 
-    // Check for input files
-    List<String> inputOntologyPaths = getOptionalValues(line, "input");
-    for (String inputOntologyPath : inputOntologyPaths) {
-      inputOntologies.add(ioHelper.loadOntology(inputOntologyPath));
-    }
-
-    // Check for input IRIs
-    List<String> inputOntologyIRIs = getOptionalValues(line, "input-iri");
-    for (String inputOntologyIRI : inputOntologyIRIs) {
-      inputOntologies.add(ioHelper.loadOntology(IRI.create(inputOntologyIRI)));
-    }
-
-    // Check for input patterns (wildcard)
-    List<String> inputOntologyPatterns = getOptionalValues(line, "inputs");
-    for (String inputOntologyPattern : inputOntologyPatterns) {
-      if (!inputOntologyPattern.contains("*") && !inputOntologyPattern.contains("?")) {
-        throw new IllegalArgumentException(wildcardError);
-      }
-      FileFilter fileFilter = new WildcardFileFilter(inputOntologyPattern);
-      File[] inputOntologyFiles = new File(".").listFiles(fileFilter);
-      if (inputOntologyFiles.length < 1) {
-        // Warn user, but continue (empty input checked later)
-        logger.error("No files match pattern: {}", inputOntologyPattern);
-      }
-      System.out.println("Loading matches to \"" + inputOntologyPattern + "\":");
-      int counter = 0;
-      for (File inputOntologyFile : inputOntologyFiles) {
-        counter++;
-        System.out.println(counter + ". " + inputOntologyFile.getName());
-        inputOntologies.add(ioHelper.loadOntology(inputOntologyFile));
-      }
+    if (catalogPath != null) {
+      inputOntologies.addAll(getInputOntologies(ioHelper, line, catalogPath));
+    } else {
+      inputOntologies.addAll(getInputOntologies(ioHelper, line));
     }
 
     if (inputOntologies.isEmpty() && !allowEmpty) {
@@ -430,11 +510,9 @@ public class CommandLineHelper {
    * @param line the command line to use
    * @return the updated state
    * @throws IllegalArgumentException if requires options are missing
-   * @throws IOException if the ontology cannot be loaded
    */
   public static CommandState updateInputOntology(
-      IOHelper ioHelper, CommandState state, CommandLine line)
-      throws IllegalArgumentException, IOException {
+      IOHelper ioHelper, CommandState state, CommandLine line) throws IllegalArgumentException {
     return updateInputOntology(ioHelper, state, line, true);
   }
 
@@ -451,11 +529,10 @@ public class CommandLineHelper {
    * @param required when true, throw an exception if ontology is not found
    * @return the updated state
    * @throws IllegalArgumentException if requires options are missing
-   * @throws IOException if the ontology cannot be loaded
    */
   public static CommandState updateInputOntology(
       IOHelper ioHelper, CommandState state, CommandLine line, boolean required)
-      throws IllegalArgumentException, IOException {
+      throws IllegalArgumentException {
     if (state != null && state.getOntology() != null) {
       if (line.hasOption("input") || line.hasOption("input-IRI")) {
         throw new IllegalArgumentException(chainedInputError);
@@ -539,6 +616,7 @@ public class CommandLineHelper {
    * Try to create an IRI from a string input. If the term is not in a valid format (null), an
    * IllegalArgumentException is thrown to prevent null from being passed into other methods.
    *
+   * @param ioHelper IOHelper to use
    * @param term the term to convert to an IRI
    * @param field the field in which the term was entered, for reporting
    * @return the new IRI if successful
@@ -601,7 +679,7 @@ public class CommandLineHelper {
    */
   public static Set<IRI> getTerms(IOHelper ioHelper, CommandLine line, String singles, String paths)
       throws IllegalArgumentException, IOException {
-    Set<String> termStrings = new HashSet<String>();
+    Set<String> termStrings = new HashSet<>();
     if (singles != null) {
       termStrings.addAll(getOptionValues(line, singles));
     }
@@ -611,7 +689,7 @@ public class CommandLineHelper {
       }
     }
 
-    Set<IRI> terms = new HashSet<IRI>();
+    Set<IRI> terms = new HashSet<>();
     for (String termString : termStrings) {
       terms.addAll(ioHelper.parseTerms(termString));
     }
@@ -646,7 +724,7 @@ public class CommandLineHelper {
     if (reasonerName.equals("structural")) {
       return new org.semanticweb.owlapi.reasoner.structural.StructuralReasonerFactory();
     } else if (reasonerName.equals("hermit")) {
-      return new org.semanticweb.HermiT.Reasoner.ReasonerFactory();
+      return new org.semanticweb.HermiT.ReasonerFactory();
     } else if (reasonerName.equals("jfact")) {
       return new JFactFactory();
       // Reason must change behavior with EMR, so not all commands can use it
@@ -671,9 +749,57 @@ public class CommandLineHelper {
     formatter.printHelp(usage, options);
   }
 
-  /** Print the ROBOT version. */
-  public static void printVersion() {
-    String version = CommandLineHelper.class.getPackage().getImplementationVersion();
+  /**
+   * Print the ROBOT version
+   *
+   * @throws IOException on issue getting info from JAR
+   */
+  public static void printVersion() throws IOException {
+    Properties p = new Properties();
+    // The resource can be accessed from the class, except when running as a JAR
+    URL resource =
+        CommandLineHelper.class
+            .getClassLoader()
+            .getResource("/META-INF/maven/org.obolibrary.robot/robot-command/pom.properties");
+    if (resource != null) {
+      URI uri;
+      try {
+        uri = resource.toURI();
+      } catch (URISyntaxException e) {
+        throw new IOExceptionWithCause(e);
+      }
+      File f = new File(uri);
+      InputStream is = new FileInputStream(f);
+      p.load(is);
+    } else {
+      // Brute-force to get properties file from JAR
+      // This will be used any time `robot --version` is entered on command line
+      String cls = CommandLineHelper.class.getName().replace(".", "/") + ".class";
+      resource = CommandLineHelper.class.getClassLoader().getResource(cls);
+      String protocol;
+      try {
+        protocol = resource.getProtocol();
+      } catch (NullPointerException e) {
+        throw new IOException(
+            "Cannot access version information from JAR. The directory address has no protocol.");
+      }
+      if (protocol.equals("jar")) {
+        // Get the JAR path and open as JAR file
+        String jarPath = resource.getPath().substring(5, resource.getPath().indexOf("!"));
+        try (JarFile jar = new JarFile(URLDecoder.decode(jarPath, "UTF-8"))) {
+          ZipEntry entry =
+              jar.getEntry("META-INF/maven/org.obolibrary.robot/robot-command/pom.properties");
+          if (entry != null) {
+            InputStream is = jar.getInputStream(entry);
+            p.load(is);
+          } else {
+            throw new IOException(
+                "Cannot access version information from JAR. The properties file does not exist.");
+          }
+        }
+      }
+    }
+    String version = p.getProperty("version");
     System.out.println("ROBOT version " + version);
   }
 
@@ -689,6 +815,7 @@ public class CommandLineHelper {
     o.addOption("v", "verbose", false, "increased logging");
     o.addOption("vv", "very-verbose", false, "high logging");
     o.addOption("vvv", "very-very-verbose", false, "maximum logging, including stack traces");
+    o.addOption(null, "catalog", true, "use catalog from provided file");
     o.addOption("p", "prefix", true, "add a prefix 'foo: http://bar'");
     o.addOption("P", "prefixes", true, "use prefixes from JSON-LD file");
     o.addOption("noprefixes", false, "do not use default prefixes");
@@ -705,9 +832,11 @@ public class CommandLineHelper {
    * @param stopAtNonOption same as CommandLineParser
    * @return a new CommandLine object or null
    * @throws ParseException if the arguments cannot be parsed
+   * @throws IOException on issue printing version
    */
   public static CommandLine maybeGetCommandLine(
-      String usage, Options options, String[] args, boolean stopAtNonOption) throws ParseException {
+      String usage, Options options, String[] args, boolean stopAtNonOption)
+      throws ParseException, IOException {
     CommandLineParser parser = new PosixParser();
     CommandLine line = parser.parse(options, args, stopAtNonOption);
 
@@ -745,9 +874,10 @@ public class CommandLineHelper {
    * @param args the command-line arguments provided
    * @return a new CommandLine object or exit(0)
    * @throws ParseException if the arguments cannot be parsed
+   * @throws IOException on issue printing version
    */
   public static CommandLine getCommandLine(String usage, Options options, String[] args)
-      throws ParseException {
+      throws ParseException, IOException {
     CommandLine line = maybeGetCommandLine(usage, options, args, false);
     if (line == null) {
       System.exit(0);
@@ -759,12 +889,127 @@ public class CommandLineHelper {
    * Shared method for dealing with exceptions, printing help, and exiting. Currently prints the
    * error message, stack trace (DEBUG), usage, and then exits.
    *
-   * @param usage the usage string for this command
-   * @param options the command-line options for this command
+   * @param exception the exception to handle
+   */
+  public static void handleException(Exception exception) {
+    ExceptionHelper.handleException(exception);
+    System.exit(1);
+  }
+
+  /**
+   * Shared method for dealing with exceptions, printing help, and exiting. Currently prints the
+   * error message, stack trace (DEBUG), usage, and then exits.
+   *
+   * @param usage the usage string for this command; WARN: not used
+   * @param options the command-line options for this command; WARN: not used
    * @param exception the exception to handle
    */
   public static void handleException(String usage, Options options, Exception exception) {
     ExceptionHelper.handleException(exception);
     System.exit(1);
+  }
+
+  /**
+   * Given an input string, return a list of the string split on whitespace, while ignoring any
+   * whitespace in single string quotes.
+   *
+   * @param selects String of select options to split
+   * @return List of split strings
+   */
+  protected static List<String> splitSelects(String selects) {
+    List<String> split = new ArrayList<>();
+    Matcher m = Pattern.compile("([^\\s]+=.*'[^']+'[^\\s']*|[^\\s']+)").matcher(selects);
+    while (m.find()) {
+      String s = m.group(1).trim();
+      split.add(s);
+    }
+    return split;
+  }
+
+  /**
+   * Given a wildcard pattern as string, return an array of files matching that pattern.
+   *
+   * @param pattern wildcard pattern to match
+   * @return array of files
+   * @throws IllegalArgumentException on bad pattern
+   */
+  private static File[] getFilesByPattern(String pattern) throws IllegalArgumentException {
+    if (!pattern.contains("*") && !pattern.contains("?")) {
+      throw new IllegalArgumentException(wildcardError);
+    }
+    FileFilter fileFilter = new WildcardFileFilter(pattern);
+    File[] files = new File(".").listFiles(fileFilter);
+    if (files == null || files.length < 1) {
+      // Warn user, but continue (empty input checked later)
+      logger.error("No files match pattern: {}", pattern);
+    }
+    return files;
+  }
+
+  /**
+   * Given an IOHelper and a command line, check input options and return a list of loaded input
+   * ontologies.
+   *
+   * @param ioHelper the IOHelper to load the ontology with
+   * @param line the command line to use
+   * @return the list of input ontologies
+   * @throws IllegalArgumentException on bad pattern
+   * @throws IOException if the ontology cannot be loaded
+   */
+  public static List<OWLOntology> getInputOntologies(IOHelper ioHelper, CommandLine line)
+      throws IllegalArgumentException, IOException {
+    List<OWLOntology> inputOntologies = new ArrayList<>();
+    // Check for input files
+    List<String> inputOntologyPaths = getOptionalValues(line, "input");
+    for (String inputOntologyPath : inputOntologyPaths) {
+      inputOntologies.add(ioHelper.loadOntology(inputOntologyPath));
+    }
+    // Check for input IRIs
+    List<String> inputOntologyIRIs = getOptionalValues(line, "input-iri");
+    for (String inputOntologyIRI : inputOntologyIRIs) {
+      inputOntologies.add(ioHelper.loadOntology(IRI.create(inputOntologyIRI)));
+    }
+    // Check for input patterns (wildcard)
+    String pattern = getOptionalValue(line, "inputs");
+    if (pattern != null) {
+      for (File inputOntologyFile : getFilesByPattern(pattern)) {
+        inputOntologies.add(ioHelper.loadOntology(inputOntologyFile));
+      }
+    }
+    return inputOntologies;
+  }
+
+  /**
+   * Given an IOHelper, a command line, and the path to a catalog file, check input options and
+   * return a list of loaded input ontologies with the catalog file.
+   *
+   * @param ioHelper the IOHelper to load the ontology with
+   * @param line the command line to use
+   * @param catalogPath the catalog file to use
+   * @return the list of input ontologies
+   * @throws IOException if the ontology cannot be loaded
+   */
+  public static List<OWLOntology> getInputOntologies(
+      IOHelper ioHelper, CommandLine line, String catalogPath) throws IOException {
+    List<OWLOntology> inputOntologies = new ArrayList<>();
+    // Check for input files
+    List<String> inputOntologyPaths = getOptionalValues(line, "input");
+    for (String inputOntologyPath : inputOntologyPaths) {
+      inputOntologies.add(ioHelper.loadOntology(inputOntologyPath, catalogPath));
+    }
+    // Check for input IRIs
+    List<String> inputOntologyIRIs = getOptionalValues(line, "input-iri");
+    for (String inputOntologyIRI : inputOntologyIRIs) {
+      inputOntologies.add(ioHelper.loadOntology(IRI.create(inputOntologyIRI), catalogPath));
+    }
+    // Check for input patterns (wildcard)
+    String pattern = getOptionalValue(line, "inputs");
+    if (pattern != null) {
+      File catalogFile = new File(catalogPath);
+      for (File inputOntologyFile : getFilesByPattern(pattern)) {
+        inputOntologies.add(ioHelper.loadOntology(inputOntologyFile, catalogFile));
+      }
+    }
+    return inputOntologies;
   }
 }
