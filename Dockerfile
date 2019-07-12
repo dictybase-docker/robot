@@ -1,20 +1,15 @@
-FROM maven:3-jdk-8-alpine
-
-RUN adduser -D robot
+FROM maven:3.6.1-jdk-8-alpine
+RUN apk update && \
+    apk upgrade && \
+    apk add --no-cache git bash
 RUN mkdir -p /usr/src/app
-RUN chown robot /usr/src/app
-
-COPY pom.xml /usr/src/app
-COPY robot-command /usr/src/app/robot-command
-COPY robot-core /usr/src/app/robot-core
-COPY bin/robot /usr/local/bin/
-RUN chown -R robot:robot /usr/src/app
-
-USER robot
 WORKDIR /usr/src/app
+COPY pom.xml ./
+ADD robot-command robot-command
+ADD robot-core robot-core
 RUN mvn install -DskipTests
 
-USER root
-RUN cp bin/robot.jar /usr/local/bin
-USER robot
-ENTRYPOINT ["robot"]
+FROM openjdk:8u212-jre-alpine3.9
+COPY bin/robot /usr/local/bin/
+COPY bin/convert /usr/local/bin
+COPY --from=0 /usr/src/app/bin/robot.jar /usr/local/bin
