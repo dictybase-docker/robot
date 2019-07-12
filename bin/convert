@@ -1,0 +1,7 @@
+#!/bin/bash 
+ 
+for o in $( jq '.commits[] | .modified[]' | sed 's/"//g' < /dev/stdin )
+do
+    output=$(basename ${o} | sed 's/obo/json/')
+    robot convert --input ${PWD}/${o} --format json --output ${output} 
+done
