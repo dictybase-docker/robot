@@ -1,5 +1,8 @@
 package org.obolibrary.robot;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.github.jsonldjava.core.Context;
 import com.github.jsonldjava.core.JsonLdApi;
 import com.github.jsonldjava.core.JsonLdError;
@@ -7,14 +10,11 @@ import com.github.jsonldjava.core.JsonLdOptions;
 import com.github.jsonldjava.core.JsonLdProcessor;
 import com.github.jsonldjava.utils.JsonUtils;
 import com.google.common.collect.Sets;
+import com.opencsv.*;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.zip.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
@@ -37,6 +37,7 @@ import org.obolibrary.oboformat.writer.OBOFormatWriter;
 import org.semanticweb.owlapi.apibinding.OWLManager;
 import org.semanticweb.owlapi.formats.*;
 import org.semanticweb.owlapi.model.*;
+import org.semanticweb.owlapi.rdf.rdfxml.renderer.IllegalElementNameException;
 import org.semanticweb.owlapi.rdf.rdfxml.renderer.XMLWriterPreferences;
 import org.semanticweb.owlapi.util.DefaultPrefixManager;
 import org.slf4j.Logger;
@@ -741,6 +742,36 @@ public class IOHelper {
   }
 
   /**
+   * Convert a row index and column index for a cell to A1 notation.
+   *
+   * @param rowNum row index
+   * @param colNum column index
+   * @return A1 notation for cell location
+   */
+  public static String cellToA1(int rowNum, int colNum) {
+    // To store result (Excel column name)
+    StringBuilder colLabel = new StringBuilder();
+
+    while (colNum > 0) {
+      // Find remainder
+      int rem = colNum % 26;
+
+      // If remainder is 0, then a
+      // 'Z' must be there in output
+      if (rem == 0) {
+        colLabel.append("Z");
+        colNum = (colNum / 26) - 1;
+      } else {
+        colLabel.append((char) ((rem - 1) + 'A'));
+        colNum = colNum / 26;
+      }
+    }
+
+    // Reverse the string and print result
+    return colLabel.reverse().toString() + rowNum;
+  }
+
+  /**
    * Given a term string, use the current prefixes to create an IRI.
    *
    * @param term the term to convert to an IRI
@@ -748,9 +779,22 @@ public class IOHelper {
    */
   @SuppressWarnings("unchecked")
   public IRI createIRI(String term) {
+    return createIRI(term, false);
+  }
+
+  /**
+   * Given a term string, use the current prefixes to create an IRI.
+   *
+   * @param term the term to convert to an IRI
+   * @param qName if true, check that the expanded IRI is a valid QName (if not, return null)
+   * @return the new IRI or null
+   */
+  @SuppressWarnings("unchecked")
+  public IRI createIRI(String term, boolean qName) {
     if (term == null) {
       return null;
     }
+    IRI iri;
 
     try {
       // This is stupid, because better methods aren't public.
@@ -764,15 +808,21 @@ public class IOHelper {
       Object expanded = new JsonLdApi().expand(context, jsonMap);
       String result = ((Map<String, Object>) expanded).keySet().iterator().next();
       if (result != null) {
-        return IRI.create(result);
+        iri = IRI.create(result);
       } else {
-        return IRI.create(term);
+        iri = IRI.create(term);
       }
     } catch (Exception e) {
       logger.warn("Could not create IRI for {}", term);
       logger.warn(e.getMessage());
+      return null;
     }
-    return null;
+
+    // Check that this is a valid QName
+    if (qName && !iri.getRemainder().isPresent()) {
+      return null;
+    }
+    return iri;
   }
 
   /**
@@ -1075,7 +1125,19 @@ public class IOHelper {
       throw new IOException(String.format(fileDoesNotExistError, prefixPath));
     }
     Context context1 = parseContext(FileUtils.readFileToString(prefixFile));
+    addPrefixes(context1);
+  }
+
+  /**
+   * Given a Context, add the prefix mappings to the current JSON-LD context.
+   *
+   * @param context1 Context to add
+   * @throws IOException if the Context cannot be set
+   */
+  public void addPrefixes(Context context1) throws IOException {
     context.putAll(context1.getPrefixes(false));
+    context.remove("@base");
+    setContext((Map<String, Object>) context);
   }
 
   /**
@@ -1211,6 +1273,57 @@ public class IOHelper {
    */
   public static List<List<String>> readTable(String path) throws IOException {
     return TemplateHelper.readTable(path);
+  }
+
+  /**
+   * Write a table from a list of arrays.
+   *
+   * @param table List of arrays to write
+   * @param path path to write to
+   * @throws IOException
+   */
+  public static void writeTable(List<String[]> table, String path) throws IOException {
+    char separator = '\t';
+    if (path.endsWith(".csv")) {
+      separator = ',';
+    }
+    writeTable(table, new File(path), separator);
+  }
+
+  /**
+   * Write a table from a list of arrays.
+   *
+   * @param file File to write to
+   * @param table List of arrays to write
+   * @param separator table separator
+   * @throws IOException on problem making Writer object or auto-closing CSVWriter
+   */
+  public static void writeTable(List<String[]> table, File file, char separator)
+      throws IOException {
+    try (Writer w = new FileWriter(file)) {
+      writeTable(table, w, separator);
+    }
+  }
+
+  /**
+   * Write a table from a list of arrays.
+   *
+   * @param writer Writer object to write to
+   * @param table List of arrays to write
+   * @param separator table separator
+   * @throws IOException on problem auto-closing writer
+   */
+  public static void writeTable(List<String[]> table, Writer writer, char separator)
+      throws IOException {
+    try (CSVWriter csv =
+        new CSVWriter(
+            writer,
+            separator,
+            CSVWriter.DEFAULT_QUOTE_CHARACTER,
+            CSVWriter.DEFAULT_ESCAPE_CHARACTER,
+            CSVWriter.DEFAULT_LINE_END)) {
+      csv.writeAll(table, false);
+    }
   }
 
   /**
@@ -1373,9 +1486,11 @@ public class IOHelper {
     if (format instanceof OboGraphJsonDocumentFormat) {
       FromOwl fromOwl = new FromOwl();
       GraphDocument gd = fromOwl.generateGraphDocument(ontology);
-      String doc = OgJsonGenerator.render(gd);
       File outfile = new File(ontologyIRI.toURI());
-      FileUtils.writeStringToFile(outfile, doc);
+      ObjectMapper mapper = new ObjectMapper();
+      mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+      ObjectWriter writer = mapper.writerWithDefaultPrettyPrinter();
+      writer.writeValue(new FileOutputStream(outfile), gd);
     } else if (format instanceof OBODocumentFormat && !checkOBO) {
       // only use this method when ignoring OBO checking, otherwise use native save
       OWLAPIOwl2Obo bridge = new OWLAPIOwl2Obo(ontology.getOWLOntologyManager());
@@ -1396,6 +1511,8 @@ public class IOHelper {
       // use native save functionality
       try {
         ontology.getOWLOntologyManager().saveOntology(ontology, format, ontologyIRI);
+      } catch (IllegalElementNameException e) {
+        throw new IOException("ELEMENT NAME EXCEPTION " + e.getCause().getMessage());
       } catch (OWLOntologyStorageException e) {
         // Determine if its caused by an OBO Format error
         if (format instanceof OBODocumentFormat

@@ -68,6 +68,8 @@ To specify upper and lower term files, use `--upper-terms` and `--lower-terms`. 
 
 To only include all descendants of a term or set of terms, use `--branch-from-term` or `--branch-from-terms`, respectively. `--lower-term` or `--lower-terms` are not required when using this option.
 
+Note that if the same IRI is used for both a class and an individual, MIREOT will ignore the individual and only extract the class.
+
 For more details see the [MIREOT paper](http://dx.doi.org/10.3233/AO-2011-0087).
 
 ### Intermediates
@@ -205,6 +207,10 @@ MIREOT requires either `--lower-term` or `--branch-from-term` to proceed. `--upp
 ### Missing Lower Term(s) Error
 
 If an `--upper-term` is specified for MIREOT, `--lower-term` (or terms) must also be specified.
+
+### Invalid Imports Error
+
+The input for `--imports` must be either `exclude` or `include`.
 
 ### Invalid Method Error
 

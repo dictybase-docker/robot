@@ -5,7 +5,7 @@
 
   <groupId>org.obolibrary.robot</groupId>
   <artifactId>robot</artifactId>
-  <version>1.6.0-SNAPSHOT</version>
+  <version>1.8.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>robot</name>
@@ -68,6 +68,7 @@
   <modules>
     <module>robot-core</module>
     <module>robot-command</module>
+    <module>robot-maven-plugin</module>
   </modules>
 
   <profiles>
@@ -83,7 +84,7 @@
             <configuration>
               <serverId>ossrh</serverId>
               <nexusUrl>https://oss.sonatype.org/</nexusUrl>
-              <autoReleaseAfterClose>false</autoReleaseAfterClose>
+              <autoReleaseAfterClose>true</autoReleaseAfterClose>
             </configuration>
           </plugin>
           <plugin>
@@ -158,11 +159,6 @@
       <version>1.7.10</version>
     </dependency>
     <dependency>
-      <groupId>commons-io</groupId>
-      <artifactId>commons-io</artifactId>
-      <version>2.4</version>
-    </dependency>
-    <dependency>
       <groupId>net.sourceforge.owlapi</groupId>
       <artifactId>owlapi-distribution</artifactId>
       <version>4.5.6</version>
@@ -196,11 +192,6 @@
       <artifactId>jfact</artifactId>
       <version>4.0.4</version>
     </dependency>
-    <dependency>
-      <groupId>net.sf.py4j</groupId>
-      <artifactId>py4j</artifactId>
-      <version>0.10.8.1</version>
-    </dependency>
   </dependencies>
 
   <build>
@@ -209,6 +200,11 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-site-plugin</artifactId>
         <version>3.7.1</version>
+      </plugin>
+      <plugin>
+        <groupId>org.obolibrary.robot</groupId>
+        <artifactId>robot-maven-plugin</artifactId>
+        <version>1.8.0-SNAPSHOT</version>
       </plugin>
     </plugins>
   </build>

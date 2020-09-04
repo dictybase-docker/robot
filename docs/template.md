@@ -32,7 +32,7 @@ Each template file must be set up in the following format:
 
 The `template` command accepts an optional input ontology, either using the `--input` option or from the previous command in a chain. If an input ontology is given, its `rdfs:label`s will be used when parsing the template. The `--template` or `-t` option specifies the CSV or TSV template file. Multiple templates are allowed, and the order of templates is significant. You can also specify the normal `--prefix` options, the `--output-iri` and `--version-iri`, and the usual `--output` options. See [Merging](#merging) for the three different merge options, and details on how they control the output of the command.
 
-A template may have multiple errors in different rows and columns. By default, `template` will fail on the first error encountered. If you wish to proceed with errors, use `--force true`. This will log all row parse errors to STDERR and attempt to create an ontology anyway. Be aware that the output ontology may be missing axioms.
+A template may have multiple errors in different rows and columns. By default, `template` will fail on the first error encountered. If you wish to proceed with errors, use `--force true`. This will log all row parse errors to STDERR and attempt to create an ontology anyway. Be aware that the output ontology may be missing axioms. You can also choose to write errors to a separate table using `--errors <path>`. If the path ends with `csv`, the output will be comma-separated. Otherwise, the output will be tab-separated. Note that `--errors` will only write to the path when `--force true` is provided as well.
 
 ## Template Strings
 
@@ -132,8 +132,10 @@ In this template, Class 5 would be a subclass of `part_of some 'Class 4'`.
 
 ### Individual Template Strings
 
-If the `TYPE` is a defined class, `owl:Individual`, or `owl:NamedIndividual`, an instance will be created. If the `TYPE` does not include a defined class, that instance will have no class assertions. You may include a `SPLIT=` in `TYPE` if you wish to provide more than one class assertion for an individual.
+If the `TYPE` is a defined class, `owl:Individual`, or `owl:NamedIndividual`, an instance will be created. If the `TYPE` does not include a defined class, that instance will have no class assertions (unless you use the `TI` template string to add an anonymous type). You may include a `SPLIT=` in `TYPE` if you wish to provide more than one class assertion for an individual.
 
+- **class assertion**:
+    - `TI %`: the individual will be asserted to be a type of the *class expression* in the column
 - **individual assertion**:
     - `I <property>`: when creating an individual, replace property with an object property or data property to add assertions (either by label or CURIE). The value of each axiom will be the value of the cell in this column. For object property assertions, this is another individual. For data property assertions, this is a literal value. If using a property label here, **do not** wrap the label in single quotes.
     - `SI %`: the individual in the column will be asserted to be the same individual
@@ -141,11 +143,11 @@ If the `TYPE` is a defined class, `owl:Individual`, or `owl:NamedIndividual`, an
 
 #### Example of Individual Template Strings
 
-| Label        | Entity Type | Property Assertions | Different Individuals |
-| ------------ | ----------- | ------------------- | --------------------- |
-| LABEL        | TYPE        | I part_of           | DI %                  |
-| Individual 1 | Class 1     | Individual 2        |                       |
-| Individual 2 | Class 1     |                     | Individual 1          |
+| Label        | Entity Type | Individual Role      | Property Assertions | Different Individuals | 
+| ------------ | ----------- | -------------------- | ------------------- | --------------------- |
+| LABEL        | TYPE        | TI 'has role' some % | I part_of           | DI %                  |
+| Individual 1 | Class 1     | Role Class 1         | Individual 2        |                       |
+| Individual 2 | Class 1     | Role Class 2         |                     | Individual 1          |
 
 <!-- ### Datatype Template Strings -->
 
@@ -227,6 +229,9 @@ Annotation properties should not have any value in the `CHARACTERISTIC` column, 
 ### Annotation Property Error
 
 The annotation property provided could not be resolved. Check your template to ensure the provided annotation property is in a correct IRI or CURIE format. For legibility, using CURIEs is recommended, but you must ensure that the prefix is defined.
+
+If you are using a label, make sure that the label is defined either in the template or input ontology.
+
 ```
 A rdfs:label
 A http://www.w3.org/2000/01/rdf-schema#label
