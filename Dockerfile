@@ -7,6 +7,7 @@ WORKDIR /usr/src/app
 COPY pom.xml ./
 ADD robot-command robot-command
 ADD robot-core robot-core
+ADD robot-maven-plugin robot-maven-plugin
 RUN mvn install -DskipTests
 
 FROM openjdk:8u212-jre-alpine3.9
