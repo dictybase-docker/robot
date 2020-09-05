@@ -16,7 +16,7 @@ jobs:
         run: |
            ref=$(echo ${{ github.ref }} | sed -r 's/refs\/(.*)\/.*/\1/')
            value=$(echo ${{ github.ref }} | sed -r 's/refs\/.*\/(.*)/\1/')
-           if [ $ref -eq 'tags' ]; then
+           if [ $ref = 'tags' ]; then
                 echo ::set-output name=dtag::${value}
            else
                 short=$(git rev-parse --short HEAD)
