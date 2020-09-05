@@ -15,7 +15,7 @@ jobs:
         id: vars
         run: |
            ref=$(echo ${{ github.ref }} | sed -r 's/refs\/(.*)\/.*/\1/')
-           value=$(echo ${{ github.ref }} | sed -r 's/refs\/.*\/(.*)/\2/')
+           value=$(echo ${{ github.ref }} | sed -r 's/refs\/.*\/(.*)/\1/')
            if [ $ref -eq 'tags' ]; then
                 echo ::set-output name=dtag::${value}
            else
