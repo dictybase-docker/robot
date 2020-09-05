@@ -1,0 +1,33 @@
+name: Build ontorobot image
+on:
+  push:
+    branches:
+       - master
+    tags:
+       - '*'
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: check out code
+        uses: actions/checkout@v2
+      - name: extract tag
+        id: vars
+        run: |
+           ref=$(echo ${{ github.ref }} | sed -r 's/refs\/(.*)\/.*/\1/')
+           value=$(echo ${{ github.ref }} | sed -r 's/refs\/.*\/(.*)/\2/')
+           if [ $ref -eq 'tags' ]; then
+                echo ::set-output name=dtag::${value}
+           else
+                short=$(git rev-parse --short HEAD)
+                echo ::set-output name=dtag::${value}-${short}
+           fi
+      - name: image build and push
+        uses: docker/build-push-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GH_PASSWORD }}
+          repository: dictybase/ontobot
+          add_git_labels: true
+          tags: ${{ steps.vars.output.dtag }}
