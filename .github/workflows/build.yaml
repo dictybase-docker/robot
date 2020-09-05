@@ -22,6 +22,8 @@ jobs:
                 short=$(git rev-parse --short HEAD)
                 echo ::set-output name=dtag::${value}-${short}
            fi
+      - name: print dockertag value
+        run: echo ${{ steps.vars.outputs.dtag }}
       - name: image build and push
         uses: docker/build-push-action@v1
         with:
@@ -30,4 +32,4 @@ jobs:
           password: ${{ secrets.GH_PASSWORD }}
           repository: dictybase/ontobot
           add_git_labels: true
-          tags: ${{ steps.vars.output.dtag }}
+          tags: ${{ steps.vars.outputs.dtag }}
