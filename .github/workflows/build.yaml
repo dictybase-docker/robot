@@ -26,7 +26,7 @@ jobs:
         uses: docker/build-push-action@v1
         with:
           registry: ghcr.io
-          username: ${{ secrets.GH_USER }}
+          username: cybersiddhu 
           password: ${{ secrets.GH_PASSWORD }}
           repository: dictybase-docker/ontobot
           add_git_labels: true
