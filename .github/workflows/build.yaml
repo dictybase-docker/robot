@@ -25,9 +25,8 @@ jobs:
       - name: image build and push
         uses: docker/build-push-action@v1
         with:
-          registry: ghcr.io
-          username: cybersiddhu 
-          password: ${{ secrets.GH_PASSWORD }}
-          repository: dictybase-docker/ontobot
+          username: ${{ secrets.DOCKER_USER }} 
+          password: ${{ secrets.DOKCER_PASSWORD }}
+          repository: dictybase/ontobot
           add_git_labels: true
           tags: ${{ steps.vars.outputs.dtag }}
