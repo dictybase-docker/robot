@@ -22,8 +22,6 @@ jobs:
                 short=$(git rev-parse --short HEAD)
                 echo ::set-output name=dtag::${value}-${short}
            fi
-      - name: print dockertag value
-        run: echo ${{ steps.vars.outputs.dtag }}
       - name: image build and push
         uses: docker/build-push-action@v1
         with:
