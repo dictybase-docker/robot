@@ -30,6 +30,6 @@ jobs:
           registry: ghcr.io
           username: ${{ secrets.GH_USER }}
           password: ${{ secrets.GH_PASSWORD }}
-          repository: dictybase/ontobot
+          repository: dictybase-docker/ontobot
           add_git_labels: true
           tags: ${{ steps.vars.outputs.dtag }}
