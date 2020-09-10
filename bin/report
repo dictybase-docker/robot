@@ -1,0 +1,18 @@
+#!/bin/bash 
+ 
+
+run_report() {
+	REPORT_DIR=${GITHUB_WORKSPACE}/reports
+	mkdir -p ${REPORT_DIR}
+	for f in ${GITHUB_WORKSPACE}/ontologies/*.obo
+	do
+	    output=$(basename ${f} | sed 's/obo/txt/')
+	    robot report --input $f --output ${REPORT_DIR}/${output} 
+	done
+}
+
+main() {
+	run_report
+}
+
+main
