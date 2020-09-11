@@ -7,7 +7,7 @@ run_report() {
 	for f in ${GITHUB_WORKSPACE}/ontologies/*.obo
 	do
 	    output=$(basename ${f} | sed 's/obo/txt/')
-	    robot report --input $f --output ${REPORT_DIR}/${output} 
+	    robot report --input $f --output ${REPORT_DIR}/${output} > /dev/null
 	done
 }
 
