@@ -1,18 +1,24 @@
 #!/bin/sh 
  
+run_if_commit_list() {
+	if [ -e ${COMMIT_LIST_FILE} ]
+	then
+		run_report
+	else
+		echo "no changed file to report"
+	fi
+}
 
 run_report() {
-	REPORT_DIR=${GITHUB_WORKSPACE}/reports
-	mkdir -p ${REPORT_DIR}
-	for f in ${GITHUB_WORKSPACE}/ontologies/*.obo
+	while read f
 	do
 	    output=$(basename ${f} | sed 's/obo/txt/')
-	    robot report --input $f --output ${REPORT_DIR}/${output} &> /dev/null
-	done
+	    robot report --input ${GITHUB_WORKSPACE}/${f} --output ${REPORT_DIR}/${output} &> /dev/null
+	done < ${COMMIT_LIST_FILE}
 }
 
 main() {
-	run_report
+	run_if_commit_list
 }
 
 main
