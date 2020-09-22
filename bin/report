@@ -1,6 +1,5 @@
-#!/bin/bash 
+#!/bin/bash -xv 
 
-set -xv
 run_report() {
 	while read -r f 
 	do
@@ -17,8 +16,6 @@ run_if_commit_list() {
 		echo "no changed file to report"
 	fi
 }
-set +xv
-
 
 main() {
 	run_if_commit_list
