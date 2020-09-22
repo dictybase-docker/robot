@@ -1,4 +1,13 @@
-#!/bin/sh 
+#!/bin/bash 
+
+set -xv
+run_report() {
+	while read -r f 
+	do
+	    output=$(basename ${f} | sed 's/obo/txt/')
+	    robot report --input ${GITHUB_WORKSPACE}/${f} --output ${REPORT_DIR}/${output} 
+	done < ${COMMIT_LIST_FILE}
+}
  
 run_if_commit_list() {
 	if [ -e ${COMMIT_LIST_FILE} ]
@@ -8,14 +17,8 @@ run_if_commit_list() {
 		echo "no changed file to report"
 	fi
 }
+set +xv
 
-run_report() {
-	while read f
-	do
-	    output=$(basename ${f} | sed 's/obo/txt/')
-	    robot report --input ${GITHUB_WORKSPACE}/${f} --output ${REPORT_DIR}/${output} &> /dev/null
-	done < ${COMMIT_LIST_FILE}
-}
 
 main() {
 	run_if_commit_list
