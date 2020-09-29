@@ -3,8 +3,8 @@
 run_report() {
 	for f in `cat ${COMMIT_LIST_FILE}`
 	do
-	    output=$(basename ${f} | sed 's/obo/tsv/')
-	    robot report --input ${GITHUB_WORKSPACE}/${f} --output ${REPORT_DIR}/${output} &> /dev/null 
+	    output=$(basename ${f} | sed 's/obo/json/')
+	    robot report --input ${GITHUB_WORKSPACE}/${f} --format JSON --output ${REPORT_DIR}/${output} &> /dev/null 
 	done 
 }
  
