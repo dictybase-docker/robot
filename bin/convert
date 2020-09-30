@@ -1,7 +1,24 @@
 #!/bin/bash 
- 
-for o in $( jq '.commits[] | .modified[]' | sed 's/"//g' < /dev/stdin )
-do
-    output=$(basename ${o} | sed 's/obo/json/')
-    robot convert --input ${PWD}/${o} --format json --output ${output} 
-done
+
+tojson() {
+	for f in `cat ${COMMIT_LIST_FILE}`
+	do
+    	    output=${OBOJSON_DIR}/$(basename ${f} | sed 's/obo/json/')
+    	    robot convert --input ${GITHUB_WORKSPACE}/${f} --format json --output ${output} 
+	done
+}
+
+run_if_commit_list() {
+	if [ -e ${COMMIT_LIST_FILE} ]
+	then
+	    tojson	
+	else
+	    echo "no changed file to convert"
+	fi
+}
+
+main() {
+	run_if_commit_list
+}
+
+main
