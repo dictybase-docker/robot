@@ -5,6 +5,7 @@ tojson() {
 	do
     	    output=${OBOJSON_DIR}/$(basename ${f} | sed 's/obo/json/')
     	    robot convert --input ${GITHUB_WORKSPACE}/${f} --format json --output ${output} 
+	    echo converted ${GITHUB_WORKSPACE}/${f} to ${output}
 	done
 }
 
