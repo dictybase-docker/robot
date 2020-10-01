@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/sh 
 
 tojson() {
 	for f in `cat ${COMMIT_LIST_FILE}`
